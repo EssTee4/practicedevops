@@ -1,0 +1,38 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "practicedevops"
+    }
+
+    stages {
+        stage('Clone') {
+            steps {
+                git 'https://github.com/EssTee4/practicedevops.git'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t ${IMAGE_NAME}:latest .'
+                }
+            }
+        }
+
+        stage('Run Container') {
+            steps {
+                script {
+                    sh 'docker stop practicedevops || true'
+                    sh 'docker rm practicedevops || true'
+                    sh 'docker run -d -p 8081:80 --name practicedevops ${IMAGE_NAME}:latest'
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo '✅ Build & Run successful!' }
+        failure { echo '❌ Build failed. Check logs.' }
+    }
+}
