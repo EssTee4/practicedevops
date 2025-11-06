@@ -15,7 +15,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    bat "docker build -t ${IMAGE_NAME}:latest ."
+                    bat "docker build -t ${env.IMAGE_NAME}:latest ."
                 }
             }
         }
@@ -23,9 +23,17 @@ pipeline {
         stage('Run Container') {
             steps {
                 script {
-                    bat 'docker stop practicedevops || true'
-                    bat 'docker rm practicedevops || true'
-                    bat 'docker run -d -p 8081:80 --name practicedevops ${IMAGE_NAME}:latest'
+                    // Stop and remove container if exists (Windows-compatible)
+                    bat '''
+                    docker ps -q -f name=practicedevops > nul 2>&1
+                    if not errorlevel 1 (
+                        docker stop practicedevops
+                        docker rm practicedevops
+                    )
+                    '''
+
+                    // Run container
+                    bat "docker run -d -p 8081:80 --name practicedevops ${env.IMAGE_NAME}:latest"
                 }
             }
         }
