@@ -11,11 +11,13 @@ pipeline{
                 bat "building"
         }
     }
+    }
     post{
         sucess{
             bat "built sucessfull"
-            
+        }
         failure{
             bat "built failed"
+        }
     }
 }
