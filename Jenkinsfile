@@ -1,10 +1,21 @@
 pipeline{
     agent any
     stages{
-        stage(hello){
+        stage("Checkout code"){
             steps{
-                echo "Hello World"
+                git "https://github.com/EssTee4/practicedevops/"
             }
         }
+        stage("build"){
+            step{
+                bat "building"
+        }
+    }
+    post{
+        sucess{
+            bat "built sucessfull"
+            
+        failure{
+            bat "built failed"
     }
 }
