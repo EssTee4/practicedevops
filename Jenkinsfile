@@ -8,16 +8,16 @@ pipeline{
         }
         stage("build"){
             steps{
-                bat "building"
+                sh "building"
         }
     }
     }
     post{
         success{
-            bat "built sucessfull"
+            sh "built sucessfull"
         }
         failure{
-            bat "built failed"
+            sh "built failed"
         }
     }
 }
