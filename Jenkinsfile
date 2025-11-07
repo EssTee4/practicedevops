@@ -3,7 +3,7 @@ pipeline{
     stages{
         stage("Checkout code"){
             steps{
-                git "https://github.com/EssTee4/practicedevops/"
+                git branch: "main" url: "https://github.com/EssTee4/practicedevops/"
             }
         }
         stage("build"){
