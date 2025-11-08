@@ -1,0 +1,37 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "test"
+        DOCKER_USER = "esstee911"
+    }
+
+    stages {
+        stage('Pull Latest Image') {
+            steps {
+                script {
+                    sh "docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                }
+            }
+        }
+
+        stage('Stop Previous Container') {
+            steps {
+                script {
+                    echo "Stopping existing container if running..."
+                    bat "docker stop ${IMAGE_NAME} || exit 0"
+                    bat "docker rm ${IMAGE_NAME} || exit 0"
+                }
+            }
+        }
+
+        stage('Run New Container') {
+            steps {
+                script {
+                    echo "Running new container on port 1234"
+                    bat "docker run -d -p 1234:80 --name ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                }
+            }
+        }
+    }
+}
