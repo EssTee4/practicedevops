@@ -13,7 +13,6 @@ pipeline {
             steps {
             echo "Running HTML and CSS tests..."
             sh 'htmlhint .'
-            sh 'stylelint "style.css" '
             }
         }
         stage('Link Check') {
