@@ -9,13 +9,20 @@ pipeline {
                 git branch: "main", url: "https://github.com/EssTee4/practicedevops.git"
             }
         }
-        stage('Run HTML and Css Tests') {
+        stage('Run HTML Tests') {
             steps {
             echo "Running HTML and CSS tests..."
             sh 'htmlhint .'
             sh 'stylelint "style.css" '
             }
         }
+        stage('Link Check') {
+            steps {
+            echo "🔗 Checking for broken links..."
+            bat 'linkinator ./index.html --recurse'
+            }
+        }
+
         stage("build image") {
             steps {
                 sh "docker build -t ${Image_name}:latest ."
