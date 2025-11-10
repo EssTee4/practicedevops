@@ -68,6 +68,7 @@ pipeline {
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
                         docker logout
                     '''
+            }
         }
         failure {
             echo "Deployment failed, rolling back..."
