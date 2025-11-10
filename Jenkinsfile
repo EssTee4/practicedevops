@@ -3,12 +3,14 @@ pipeline {
     environment {
         Image_name = "esstee911/test"
     }
+    
     stages {
         stage("checkout") {
             steps {
                 git branch: "main", url: "https://github.com/EssTee4/practicedevops.git"
             }
         }
+        
         stage('Run HTML Tests') {
             when {
                 branch 'dev'
@@ -18,6 +20,7 @@ pipeline {
             sh 'htmlhint .'
             }
         }
+        
         stage('Link Check') {
             when {
                 branch 'dev'
@@ -27,6 +30,25 @@ pipeline {
             sh 'linkinator ./index.html --recurse'
             }
         }
+
+        stage('Merge to Main') {
+            when {
+                branch 'dev'
+            }
+            steps {
+            withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
+            sh '''
+                git remote set-url origin https://${USER}:${TOKEN}@github.com/EssTee4/practicedevops.git
+                git fetch origin main
+                git checkout main
+
+                git merge origin/dev --no-edit
+
+                git push origin main
+            '''
+            }
+        }
+    }
 
         stage("build image") {
             when {
