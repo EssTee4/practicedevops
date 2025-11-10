@@ -36,8 +36,8 @@ pipeline {
         stage('Run New Container') {
             steps {
                 script {
-                    echo "Running new container on port 1234"
-                    sh "docker run -d -p 1234:80 --name ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:latest"
+                    echo "Running new container on port 4444"
+                    sh "docker run -d -p 4444:80 --name ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:latest"
                 }
             }
         }
@@ -62,7 +62,7 @@ pipeline {
             withCredentials([usernamePassword(credentialsId: "dockerhub", usernameVariable: "dockerUser", passwordVariable: "dockerPass")]) {
                     sh '''
                         echo $dockerPass | docker login -u $dockerUser --password-stdin
-                        docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || true
+                        docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:build-${BUILD_NUMBER} || true
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || true
                         docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
@@ -75,7 +75,7 @@ pipeline {
             sh '''
                 docker stop ${IMAGE_NAME}
                 docker rm ${IMAGE_NAME}
-                docker run -d -p 1234:80 --name ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "No backup image to roll back!"
+                docker run -d -p 4444:80 --name ${IMAGE_NAME} ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "No backup image to roll back!"
             '''
         }
     }
