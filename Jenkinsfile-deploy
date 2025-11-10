@@ -46,10 +46,11 @@ pipeline {
             steps {
                 script {
                     def status = sh(script: "docker ps | grep ${IMAGE_NAME} | wc -l", returnStdout: true).trim()
-                    if (status == "1") {
-                        echo "Deployment successful."
-                    } else {
+                    if (status != "1") {
                         error("Deployment failed!")
+                    } 
+                else {
+                        echo "Deployment successful."
                     }
                 }
             }
