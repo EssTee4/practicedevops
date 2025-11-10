@@ -63,7 +63,7 @@ pipeline {
                     sh '''
                         echo $dockerPass | docker login -u $dockerUser --password-stdin
                         docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:build-${BUILD_NUMBER} || true
-                        docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || true
+                        docker push ${DOCKER_USER}/${IMAGE_NAME}:build-${BUILD_NUMBER} || true
                         docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
                         docker logout
