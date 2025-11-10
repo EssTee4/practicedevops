@@ -38,6 +38,8 @@ pipeline {
             steps {
             withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
             sh '''
+                git config --global user.email "jenkins@autoupload.com"
+                git config --global user.name "Admin"
                 git remote set-url origin https://${USER}:${TOKEN}@github.com/EssTee4/practicedevops.git
                 git fetch origin main
                 git checkout main

@@ -27,8 +27,8 @@ pipeline {
             steps {
                 script {
                     echo "Stopping existing container if running..."
-                    sh "docker stop ${IMAGE_NAME} || exit 0"
-                    sh "docker rm ${IMAGE_NAME} || exit 0"
+                    sh "docker stop ${IMAGE_NAME} || true"
+                    sh "docker rm ${IMAGE_NAME} || true"
                 }
             }
         }
@@ -60,8 +60,8 @@ pipeline {
         success {
             echo "Tagging deployed image as stable..."
             sh '''
-                docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}|| echo "No backup image to save"
-                docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || exit 0"
+                docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || true
+                docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || true
                 docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
                 docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
             '''
