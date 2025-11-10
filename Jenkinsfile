@@ -10,12 +10,18 @@ pipeline {
             }
         }
         stage('Run HTML Tests') {
+            when {
+                branch 'dev'
+            }
             steps {
             echo "Running HTML and CSS tests..."
             sh 'htmlhint .'
             }
         }
         stage('Link Check') {
+            when {
+                branch 'dev'
+            }
             steps {
             echo "🔗 Checking for broken links..."
             sh 'linkinator ./index.html --recurse'
@@ -23,11 +29,17 @@ pipeline {
         }
 
         stage("build image") {
+            when {
+                branch 'main'
+            }
             steps {
                 sh "docker build -t ${Image_name}:latest ."
             }
         }
         stage("push to docker") {
+            when {
+                branch 'main'
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: "dockerhub", usernameVariable: "dockerUser", passwordVariable: "dockerPass")]) {
                     sh '''
@@ -39,6 +51,9 @@ pipeline {
             }
         }
          stage('Cleanup') {
+             when {
+                branch 'main'
+            }
             steps {
                 echo "🧹 Cleaning up local images..."
                 sh "docker rmi ${env.IMAGE_NAME}:latest || exit 0"
