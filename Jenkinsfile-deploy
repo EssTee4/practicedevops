@@ -46,10 +46,11 @@ pipeline {
             steps {
                 script {
                     def status = sh(script: "docker ps | grep ${IMAGE_NAME} | wc -l", returnStdout: true).trim()
-                    if (status == "1") {
-                        echo "Deployment successful."
-                    } else {
+                    if (status != "1") {
                         error("Deployment failed!")
+                    } 
+                else {
+                        echo "Deployment successful."
                     }
                 }
             }
@@ -59,8 +60,8 @@ pipeline {
         success {
             echo "Tagging deployed image as stable..."
             sh '''
-                docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}
-                docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}
+                docker tag ${DOCKER_USER}/${IMAGE_NAME}:stable ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER}|| echo "No backup image to save"
+                docker push ${DOCKER_USER}/${IMAGE_NAME}:${BUILD_NUMBER} || exit 0"
                 docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
                 docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
             '''
