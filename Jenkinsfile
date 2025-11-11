@@ -15,15 +15,20 @@ pipeline {
                 echo "🚧 Building feature branch: ${env.BRANCH_NAME}"
                 checkout scm
                 script {
-                    def featureTag = env.BRANCH_NAME.replaceAll('/', '-')
-                    echo "Branch name: ${featureTag}"
+                    // Sanitize branch name for Docker tag
+                    def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
+                    if (!featureTag) { featureTag = "latest" }
+                    echo "Using Docker tag: ${featureTag}"
+                    
                     sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${featureTag} ."
+                    
+                    // Push to Docker with proper interpolation
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
-                        sh '''
-                            echo $dockerPass | docker login -u $dockerUser --password-stdin
+                        sh """
+                            echo \$dockerPass | docker login -u \$dockerUser --password-stdin
                             docker push ${DOCKER_USER}/${IMAGE_NAME}:${featureTag}
                             docker logout
-                        '''
+                        """
                     }
                 }
             }
@@ -37,14 +42,14 @@ pipeline {
                 checkout scm
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:develop ."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
-                    sh '''
-                        echo $dockerPass | docker login -u $dockerUser --password-stdin
+                    sh """
+                        echo \$dockerPass | docker login -u \$dockerUser --password-stdin
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:develop
                         docker stop dev-test || true
                         docker rm dev-test || true
                         docker run -d -p 2222:80 --name dev-test ${DOCKER_USER}/${IMAGE_NAME}:develop
                         docker logout
-                    '''
+                    """
                 }
             }
         }
@@ -56,21 +61,24 @@ pipeline {
                 echo "🚀 Building release branch for staging..."
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:staging ."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
-                    sh '''
-                        echo $dockerPass | docker login -u $dockerUser --password-stdin
+                    sh """
+                        echo \$dockerPass | docker login -u \$dockerUser --password-stdin
                         docker push ${DOCKER_USER}/${IMAGE_NAME}:staging
                         docker stop staging || true
                         docker rm staging || true
                         docker run -d -p 4444:80 --name staging ${DOCKER_USER}/${IMAGE_NAME}:staging
                         docker logout
-                    '''
+                    """
                 }
+
                 echo "🔒 Locking develop branch during release stabilization..."
-                sh '''
-                    git fetch origin develop
-                    git branch -m develop develop-locked-$(date +%s)
-                    git push origin :develop || true
-                '''
+                withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
+                    sh """
+                        git fetch origin develop
+                        git branch -m develop develop-locked-\$(date +%s)
+                        git push origin :develop || true
+                    """
+                }
             }
         }
 
@@ -87,14 +95,14 @@ pipeline {
             when { branch 'release' }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
-                    sh '''
+                    sh """
                         git config user.name "jenkins"
                         git config user.email "jenkins@ci.local"
                         git fetch origin main
                         git checkout main
                         git merge --no-ff origin/release -m "Merge release into main"
-                        git push https://${USER}:${TOKEN}@github.com/EssTee4/practicedevops.git main
-                    '''
+                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git main
+                    """
                 }
             }
         }
@@ -105,38 +113,40 @@ pipeline {
             steps {
                 script {
                     echo "🚀 Starting production deployment..."
-                    sh '''
-                        docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
-                        docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
+                        sh """
+                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
+                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
 
-                        docker stop prod-live || true
-                        docker rm prod-live || true
-
-                        docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
-                        docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
-
-                        sleep 5
-                        status=$(docker ps | grep prod-live | wc -l)
-                        if [ "$status" != "1" ]; then
-                            echo "❌ Deployment failed, rolling back..."
                             docker stop prod-live || true
                             docker rm prod-live || true
-                            docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image available"
-                            exit 1
-                        fi
-                    '''
+
+                            docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
+                            docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
+
+                            sleep 5
+                            status=\$(docker ps | grep prod-live | wc -l)
+                            if [ "\$status" != "1" ]; then
+                                echo "❌ Deployment failed, rolling back..."
+                                docker stop prod-live || true
+                                docker rm prod-live || true
+                                docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image available"
+                                exit 1
+                            fi
+                        """
+                    }
                 }
             }
             post {
                 success {
                     echo "🏷️ Tagging deployed image as stable..."
                     withCredentials([usernamePassword(credentialsId: "dockerhub", usernameVariable: "dockerUser", passwordVariable: "dockerPass")]) {
-                        sh '''
-                            echo $dockerPass | docker login -u $dockerUser --password-stdin
+                        sh """
+                            echo \$dockerPass | docker login -u \$dockerUser --password-stdin
                             docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
                             docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
                             docker logout
-                        '''
+                        """
                     }
                 }
                 failure { echo "Deployment failed. Previous stable image retained." }
@@ -148,17 +158,17 @@ pipeline {
             when { branch 'main' }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
-                    sh '''
+                    sh """
                         echo "🔄 Syncing main back into develop..."
                         git fetch origin
                         git checkout develop || git checkout -b develop
                         git merge --no-ff origin/main -m "Sync main into develop"
-                        git push https://${USER}:${TOKEN}@github.com/EssTee4/practicedevops.git develop
+                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git develop
 
                         echo "🔓 Unlocking develop branch..."
                         git branch -f develop
-                        git push https://${USER}:${TOKEN}@github.com/EssTee4/practicedevops.git develop --force
-                    '''
+                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git develop --force
+                    """
                 }
             }
         }
@@ -169,4 +179,3 @@ pipeline {
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
     }
 }
-
