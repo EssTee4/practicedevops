@@ -15,14 +15,11 @@ pipeline {
                 echo "🚧 Feature branch: ${env.BRANCH_NAME}"
                 checkout scm
                 script {
-                    // Run unit tests & lint
                     sh "echo 'Running unit tests and lint...' || true"
-                    // Build Docker image
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
                     echo "Docker tag: ${featureTag}"
                     sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${featureTag} ."
-                    // Push to Docker Hub
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                         sh """
                             echo \$dockerPass | docker login -u \$dockerUser --password-stdin
@@ -92,7 +89,6 @@ pipeline {
             }
         }
 
-        /* -------- Approval: Merge Release → Main -------- */
         stage('Approval: Merge Release → Main') {
             when { branch 'release' }
             steps {
@@ -100,7 +96,6 @@ pipeline {
             }
         }
 
-        /* -------- Merge Release into Main -------- */
         stage('Merge Release → Main') {
             when { branch 'release' }
             steps {
@@ -130,10 +125,56 @@ pipeline {
                             docker rm prod-live || true
                             docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
                             docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
-                            
+
                             sleep 5
                             status=\$(docker ps | grep prod-live | wc -l)
                             if [ "\$status" != "1" ]; then
                                 echo "❌ Deployment failed, rolling back..."
                                 docker stop prod-live || true
                                 docker rm prod-live || true
+                                docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image"
+                                exit 1
+                            fi
+                        """
+                    }
+                }
+            }
+            post {
+                success {
+                    echo "🏷️ Tagging stable image"
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
+                        sh """
+                            echo \$dockerPass | docker login -u \$dockerUser --password-stdin
+                            docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
+                            docker push ${DOCKER_USER}/${IMAGE_NAME}:stable
+                            docker logout
+                        """
+                    }
+                }
+                failure { echo "⚠️ Production deployment failed. Stable image retained." }
+            }
+        }
+
+        /* -------- Dev Unlock & Sync -------- */
+        stage('Dev Unlock & Sync') {
+            when { branch 'main' }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
+                    sh """
+                        echo "🔄 Sync main back to dev..."
+                        git fetch origin
+                        git checkout main
+                        git branch -f dev
+                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git dev --force
+                        echo "✅ Dev branch unlocked and synced"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "✅ Pipeline completed for ${env.BRANCH_NAME}" }
+        failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
+    }
+}
