@@ -74,9 +74,9 @@ pipeline {
                 echo "🔒 Locking develop branch during release stabilization..."
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
                     sh """
-                        git fetch origin develop
-                        git branch -m develop develop-locked-\$(date +%s)
-                        git push origin :develop || true
+                        git fetch origin dev
+                        git branch -m dev dev-locked-\$(date +%s)
+                        git push origin :dev || true
                     """
                 }
             }
@@ -179,4 +179,5 @@ pipeline {
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
     }
 }
+
 
