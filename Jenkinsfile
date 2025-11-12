@@ -8,21 +8,19 @@ pipeline {
 
     stages {
 
-        /* -------- Feature Branch -------- */
+        /* -------- Feature Branch Build -------- */
         stage('Feature Branch Build') {
             when { expression { env.BRANCH_NAME.startsWith('feature/') } }
             steps {
                 echo "🚧 Building feature branch: ${env.BRANCH_NAME}"
                 checkout scm
                 script {
-                    // Sanitize branch name for Docker tag
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
                     echo "Using Docker tag: ${featureTag}"
-                    
+
                     sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${featureTag} ."
-                    
-                    // Push to Docker with proper interpolation
+
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                         sh """
                             echo \$dockerPass | docker login -u \$dockerUser --password-stdin
@@ -34,11 +32,11 @@ pipeline {
             }
         }
 
-        /* -------- Develop Branch (Testing Env - Port 2222) -------- */
+        /* -------- Develop Branch Build & Deploy (Testing) -------- */
         stage('Develop Build & Deploy') {
             when { branch 'dev' }
             steps {
-                echo "🧪 Building and deploying from develop branch..."
+                echo "🧪 Building and deploying develop branch..."
                 checkout scm
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:develop ."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
@@ -54,7 +52,7 @@ pipeline {
             }
         }
 
-        /* -------- Single Release Branch -------- */
+        /* -------- Release Branch Build & Deploy to Staging -------- */
         stage('Release Build & Deploy to Staging') {
             when { branch 'release' }
             steps {
@@ -71,18 +69,26 @@ pipeline {
                     """
                 }
 
-                echo "🔒 Locking develop branch during release stabilization..."
+                echo "🔒 Locking develop branch during release..."
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
                     sh """
-                        git fetch origin dev
-                        git branch -m dev dev-locked-\$(date +%s)
-                        git push origin :dev || true
+                        git fetch origin dev:dev || echo "Dev branch not found locally"
+                        if git show-ref --verify --quiet refs/heads/dev; then
+                            LOCKED_DEV="dev-locked-\$(date +%s)"
+                            git branch -m dev \$LOCKED_DEV
+                            git push origin \$LOCKED_DEV || echo "Failed to push locked dev branch"
+                            git push origin :dev || true
+                            echo "✅ Develop branch locked as \$LOCKED_DEV"
+                        else
+                            echo "⚠️ Dev branch not found, skipping lock"
+                            exit 1
+                        fi
                     """
                 }
             }
         }
 
-        /* -------- Approval Before Merge -------- */
+        /* -------- Approval Before Merge to Main -------- */
         stage('Approval to Merge Release → Main') {
             when { branch 'release' }
             steps {
@@ -107,7 +113,7 @@ pipeline {
             }
         }
 
-        /* -------- Main Branch (Production - Port 3333) -------- */
+        /* -------- Production Deployment with Rollback -------- */
         stage('Production Deployment with Rollback') {
             when { branch 'main' }
             steps {
@@ -117,10 +123,8 @@ pipeline {
                         sh """
                             docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
                             docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
-
                             docker stop prod-live || true
                             docker rm prod-live || true
-
                             docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
                             docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
 
@@ -140,7 +144,7 @@ pipeline {
             post {
                 success {
                     echo "🏷️ Tagging deployed image as stable..."
-                    withCredentials([usernamePassword(credentialsId: "dockerhub", usernameVariable: "dockerUser", passwordVariable: "dockerPass")]) {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                         sh """
                             echo \$dockerPass | docker login -u \$dockerUser --password-stdin
                             docker tag ${DOCKER_USER}/${IMAGE_NAME}:latest ${DOCKER_USER}/${IMAGE_NAME}:stable
@@ -161,13 +165,11 @@ pipeline {
                     sh """
                         echo "🔄 Syncing main back into develop..."
                         git fetch origin
-                        git checkout develop || git checkout -b develop
-                        git merge --no-ff origin/main -m "Sync main into develop"
-                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git develop
-
-                        echo "🔓 Unlocking develop branch..."
-                        git branch -f develop
-                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git develop --force
+                        # Recreate or checkout dev branch from main
+                        git checkout main
+                        git branch -f dev
+                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git dev --force
+                        echo "🔓 Develop branch unlocked and synced"
                     """
                 }
             }
@@ -179,5 +181,3 @@ pipeline {
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
     }
 }
-
-
