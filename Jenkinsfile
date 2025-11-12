@@ -8,7 +8,7 @@ pipeline {
 
     stages {
 
-        /* -------- Feature Branch Build -------- */
+        /* -------- Feature Branch -------- */
         stage('Feature Branch Build') {
             when { expression { env.BRANCH_NAME.startsWith('feature/') } }
             steps {
@@ -17,10 +17,7 @@ pipeline {
                 script {
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
-                    echo "Using Docker tag: ${featureTag}"
-
                     sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${featureTag} ."
-
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                         sh """
                             echo \$dockerPass | docker login -u \$dockerUser --password-stdin
@@ -32,31 +29,34 @@ pipeline {
             }
         }
 
-        /* -------- Develop Branch Build & Deploy (Testing) -------- */
-        stage('Develop Build & Deploy') {
-            when { branch 'dev' }
+        /* -------- Develop Branch (Dev) -------- */
+        stage('Dev Build & Deploy') {
+            when { expression { env.BRANCH_NAME == 'dev' } }
             steps {
-                echo "🧪 Building and deploying develop branch..."
+                echo "🧪 Building and deploying dev branch..."
+                deleteDir()
                 checkout scm
-                sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:develop ."
+                sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:dev ."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                     sh """
                         echo \$dockerPass | docker login -u \$dockerUser --password-stdin
-                        docker push ${DOCKER_USER}/${IMAGE_NAME}:develop
+                        docker push ${DOCKER_USER}/${IMAGE_NAME}:dev
                         docker stop dev-test || true
                         docker rm dev-test || true
-                        docker run -d -p 2222:80 --name dev-test ${DOCKER_USER}/${IMAGE_NAME}:develop
+                        docker run -d -p 2222:80 --name dev-test ${DOCKER_USER}/${IMAGE_NAME}:dev
                         docker logout
                     """
                 }
             }
         }
 
-        /* -------- Release Branch Build & Deploy to Staging -------- */
-        stage('Release Build & Deploy to Staging') {
-            when { branch 'release' }
+        /* -------- Release Branch (Staging + Dev Lock) -------- */
+        stage('Release Build & Staging') {
+            when { expression { env.BRANCH_NAME == 'release' } }
             steps {
                 echo "🚀 Building release branch for staging..."
+                deleteDir()
+                checkout scm
                 sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:staging ."
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                     sh """
@@ -69,36 +69,35 @@ pipeline {
                     """
                 }
 
-                echo "🔒 Locking develop branch during release..."
+                echo "🔒 Locking dev branch..."
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
                     sh """
-                        git fetch origin dev:dev || echo "Dev branch not found locally"
+                        git fetch origin dev:dev || echo "Dev branch not found"
                         if git show-ref --verify --quiet refs/heads/dev; then
                             LOCKED_DEV="dev-locked-\$(date +%s)"
                             git branch -m dev \$LOCKED_DEV
                             git push origin \$LOCKED_DEV || echo "Failed to push locked dev branch"
                             git push origin :dev || true
-                            echo "✅ Develop branch locked as \$LOCKED_DEV"
+                            echo "✅ Dev branch locked as \$LOCKED_DEV"
                         else
                             echo "⚠️ Dev branch not found, skipping lock"
-                            exit 1
                         fi
                     """
                 }
             }
         }
 
-        /* -------- Approval Before Merge to Main -------- */
+        /* -------- Manual Approval -------- */
         stage('Approval to Merge Release → Main') {
-            when { branch 'release' }
+            when { expression { env.BRANCH_NAME == 'release' } }
             steps {
-                input message: "✅ Approve merging release branch into main for production?"
+                input message: "✅ Approve merging release into main?"
             }
         }
 
         /* -------- Merge Release into Main -------- */
         stage('Merge Release → Main') {
-            when { branch 'release' }
+            when { expression { env.BRANCH_NAME == 'release' } }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
                     sh """
@@ -113,32 +112,31 @@ pipeline {
             }
         }
 
-        /* -------- Production Deployment with Rollback -------- */
-        stage('Production Deployment with Rollback') {
-            when { branch 'main' }
+        /* -------- Production Deployment (Main) -------- */
+        stage('Production Deployment') {
+            when { expression { env.BRANCH_NAME == 'main' } }
             steps {
-                script {
-                    echo "🚀 Starting production deployment..."
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
-                        sh """
-                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
-                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
+                echo "🚀 Deploying production..."
+                deleteDir()
+                checkout scm
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
+                    sh """
+                        docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
+                        docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
+                        docker stop prod-live || true
+                        docker rm prod-live || true
+                        docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
+                        docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
+
+                        sleep 5
+                        if [ \$(docker ps | grep prod-live | wc -l) -ne 1 ]; then
+                            echo "❌ Deployment failed, rolling back..."
                             docker stop prod-live || true
                             docker rm prod-live || true
-                            docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
-                            docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
-
-                            sleep 5
-                            status=\$(docker ps | grep prod-live | wc -l)
-                            if [ "\$status" != "1" ]; then
-                                echo "❌ Deployment failed, rolling back..."
-                                docker stop prod-live || true
-                                docker rm prod-live || true
-                                docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image available"
-                                exit 1
-                            fi
-                        """
-                    }
+                            docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image"
+                            exit 1
+                        fi
+                    """
                 }
             }
             post {
@@ -153,23 +151,24 @@ pipeline {
                         """
                     }
                 }
-                failure { echo "Deployment failed. Previous stable image retained." }
+                failure {
+                    echo "❌ Deployment failed. Previous stable image retained."
+                }
             }
         }
 
-        /* -------- Sync & Unlock Develop -------- */
-        stage('Sync & Unlock Develop') {
-            when { branch 'main' }
+        /* -------- Sync & Unlock Dev -------- */
+        stage('Sync & Unlock Dev') {
+            when { expression { env.BRANCH_NAME == 'main' } }
             steps {
+                echo "🔄 Unlocking dev branch..."
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
                     sh """
-                        echo "🔄 Syncing main back into develop..."
                         git fetch origin
-                        # Recreate or checkout dev branch from main
                         git checkout main
                         git branch -f dev
                         git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git dev --force
-                        echo "🔓 Develop branch unlocked and synced"
+                        echo "🔓 Dev branch unlocked and synced"
                     """
                 }
             }
