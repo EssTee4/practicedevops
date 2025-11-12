@@ -15,9 +15,7 @@ pipeline {
                 echo "🚧 Feature branch: ${env.BRANCH_NAME}"
                 checkout scm
                 script {
-                    // Run unit tests & lint
                     sh "echo 'Running unit tests and lint...' || true"
-                    // Build Docker image
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
                     echo "Docker tag: ${featureTag}"
