@@ -15,12 +15,14 @@ pipeline {
                 echo "🚧 Feature branch: ${env.BRANCH_NAME}"
                 checkout scm
                 script {
+                    // Run unit tests & lint
                     sh "echo 'Running unit tests and lint...' || true"
+                    // Build Docker image
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
                     echo "Docker tag: ${featureTag}"
                     sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:${featureTag} ."
-
+                    // Push to Docker Hub
                     withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
                         sh """
                             echo \$dockerPass | docker login -u \$dockerUser --password-stdin
@@ -54,42 +56,37 @@ pipeline {
         }
 
         /* -------- Release Branch -------- */
-        stage('Release Build & Staging') {
-            when { branch 'release' }
-            steps {
-                echo "🚀 Release branch staging deploy"
-                sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:staging ."
-                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
-                    sh """
-                        echo \$dockerPass | docker login -u \$dockerUser --password-stdin
-                        docker push ${DOCKER_USER}/${IMAGE_NAME}:staging
-                        docker stop staging || true
-                        docker rm staging || true
-                        docker run -d -p 4444:80 --name staging ${DOCKER_USER}/${IMAGE_NAME}:staging
-                        echo 'Running acceptance tests...'
-                        docker logout
-                    """
-                }
-
-                echo "🔒 Locking dev branch..."
-                withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
-                    sh """
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@ci.local"
-                        git fetch origin dev || echo "Dev branch not found"
-                        if git show-ref --verify --quiet refs/heads/dev; then
-                            LOCKED_DEV="dev-locked-\$(date +%s)"
-                            git branch -m dev \$LOCKED_DEV
-                            git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git \$LOCKED_DEV || echo "Failed to push locked dev"
-                            git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git dev || true
-                            echo "✅ Dev locked as \$LOCKED_DEV"
-                        else
-                            echo "⚠️ Dev branch not found, skipping lock safely"
-                        fi
-                    """
-                }
-            }
+stage('Release Build & Staging') {
+    when { branch 'release' }
+    steps {
+        echo "🚀 Release branch staging deploy"
+        sh "docker build -t ${DOCKER_USER}/${IMAGE_NAME}:staging ."
+        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
+            sh """
+                echo \$dockerPass | docker login -u \$dockerUser --password-stdin
+                docker push ${DOCKER_USER}/${IMAGE_NAME}:staging
+                docker stop staging || true
+                docker rm staging || true
+                docker run -d -p 4444:80 --name staging ${DOCKER_USER}/${IMAGE_NAME}:staging
+                echo 'Running acceptance tests...'
+                docker logout
+            """
         }
+
+        echo "🔒 Locking dev branch..."
+        withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
+            sh """
+                git fetch origin dev:dev || echo "Dev branch not found"
+                if git show-ref --verify --quiet refs/heads/dev; then
+                    git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git :dev || true
+                else
+                    echo "⚠️ Dev branch not found, skipping lock"
+                fi
+            """
+        }
+    }
+}
+
 
         /* -------- Approval: Merge Release → Main -------- */
         stage('Approval: Merge Release → Main') {
@@ -98,22 +95,24 @@ pipeline {
                 input message: "✅ Approve merging release to main?"
             }
         }
-
+            
+            /* -------- Merge Release into Main -------- */
         stage('Merge Release → Main') {
             when { branch 'release' }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
-                    sh """
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@ci.local"
-                        git fetch origin main
-                        git checkout main
-                        git merge --no-ff origin/release -m "Merge release into main"
-                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git main
-                    """
-                }
+                sh """
+                    git config user.name "jenkins"
+                    git config user.email "jenkins@ci.local"
+                    git fetch origin main
+                    git checkout main
+                    git pull origin main --rebase || true
+                    git merge --no-ff origin/release -m "Merge release into main"
+                    git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git main
+                """
             }
         }
+    }
 
         /* -------- Main Branch Production Deploy -------- */
         stage('Production Deployment') {
@@ -181,3 +180,7 @@ pipeline {
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
     }
 }
+
+
+
+
