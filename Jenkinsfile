@@ -56,7 +56,6 @@ pipeline {
         }
 
         /* -------- Release Branch -------- */
-        /* -------- Release Branch -------- */
 stage('Release Build & Staging') {
     when { branch 'release' }
     steps {
@@ -79,17 +78,9 @@ stage('Release Build & Staging') {
             sh """
                 git fetch origin dev:dev || echo "Dev branch not found"
                 if git show-ref --verify --quiet refs/heads/dev; then
-                    LOCKED_DEV="dev-locked-\$(date +%s)"
-                    git branch -m dev \$LOCKED_DEV
-
-                    # ✅ Corrected token substitution
-                    git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git \$LOCKED_DEV || echo "Failed to push locked dev"
                     git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git :dev || true
-
-                    echo "✅ Dev locked as \$LOCKED_DEV"
                 else
                     echo "⚠️ Dev branch not found, skipping lock"
-                    exit 1
                 fi
             """
         }
@@ -104,23 +95,24 @@ stage('Release Build & Staging') {
                 input message: "✅ Approve merging release to main?"
             }
         }
-
-        /* -------- Merge Release into Main -------- */
+            
+            /* -------- Merge Release into Main -------- */
         stage('Merge Release → Main') {
             when { branch 'release' }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
-                    sh """
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@ci.local"
-                        git fetch origin main
-                        git checkout main
-                        git merge --no-ff origin/release -m "Merge release into main"
-                        git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git main
-                    """
-                }
+                sh """
+                    git config user.name "jenkins"
+                    git config user.email "jenkins@ci.local"
+                    git fetch origin main
+                    git checkout main
+                    git pull origin main --rebase || true
+                    git merge --no-ff origin/release -m "Merge release into main"
+                    git push https://\$USER:\$TOKEN@github.com/EssTee4/practicedevops.git main
+                """
             }
         }
+    }
 
         /* -------- Main Branch Production Deploy -------- */
         stage('Production Deployment') {
@@ -186,6 +178,9 @@ stage('Release Build & Staging') {
     post {
         success { echo "✅ Pipeline completed for ${env.BRANCH_NAME}" }
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
+        
     }
 }
+
+
 
