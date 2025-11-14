@@ -72,7 +72,7 @@ pipeline {
                 /* ---- (3) Health Check (Dev) ---- */
                 sh """
                     echo '⏳ Waiting for dev container...'
-                    sleep 5
+                    sleep 10
                     echo '🔍 Running Dev health check...'
                     docker exec dev-test curl -f http://localhost/2222 || exit 1
                 """
@@ -227,6 +227,7 @@ pipeline {
         
     }
 }
+
 
 
 
