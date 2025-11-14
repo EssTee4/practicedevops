@@ -25,7 +25,6 @@ pipeline {
                 script {
                     // Run unit tests & lint
                     sh "echo 'Running unit tests and lint...' || true"
-
                     // Build Docker image
                     def featureTag = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9_.-]', '-')
                     if (!featureTag) { featureTag = "latest" }
@@ -65,6 +64,7 @@ pipeline {
                         docker stop dev-test || true
                         docker rm dev-test || true
                         docker run -d -p 2222:80 --name dev-test ${DOCKER_USER}/${IMAGE_NAME}:dev
+                        echo 'Running integration tests...'
                         docker logout
                     """
                 }
@@ -74,7 +74,7 @@ pipeline {
                     echo '⏳ Waiting for dev container...'
                     sleep 5
                     echo '🔍 Running Dev health check...'
-                    docker exec dev-test curl -f http://localhost/ || exit 1
+                    docker exec dev-test curl -f http://localhost/2222 || exit 1
                 """
             }
         }
@@ -102,7 +102,7 @@ pipeline {
                     echo '⏳ Waiting for staging container...'
                     sleep 5
                     echo '🔍 Running Staging health check...'
-                    curl -f http://localhost:4444/ || exit 1
+                    docker exec dev-test curl -f http://localhost/2222 || exit 1
                 """
 
                 echo "🔒 Locking dev branch..."
@@ -118,15 +118,19 @@ pipeline {
                 }
             }
         }
+    
 
-        /* Approval & Merge + Production stages stay the same */
+
+
+        /* -------- Approval: Merge Release → Main -------- */
         stage('Approval: Merge Release → Main') {
             when { branch 'release' }
             steps {
                 input message: "✅ Approve merging release to main?"
             }
         }
-
+            
+            /* -------- Merge Release into Main -------- */
         stage('Merge Release → Main') {
             when { branch 'release' }
             steps {
@@ -157,6 +161,31 @@ pipeline {
                             docker rm prod-live || true
                             docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
                             docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
+                            
+                            sleep 5
+                            status=\$(docker ps | grep prod-live | wc -l)
+                            if [ "\$status" != "1" ]; then
+                                echo "❌ Deployment failed, rolling back..."
+                                docker stop prod-live || true
+                                docker rm prod-live || true
+                                docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:stable || echo "⚠️ No stable image"
+                                exit 1
+                            fi
+                        """
+                    }
+                }
+            }
+            post {
+                success {
+                    echo "🏷️ Tagging stable image"
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'dockerUser', passwordVariable: 'dockerPass')]) {
+                        sh """
+                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:latest || true
+                            docker pull ${DOCKER_USER}/${IMAGE_NAME}:stable || true
+                            docker stop prod-live || true
+                            docker rm prod-live || true
+                            docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .
+                            docker run -d -p 3333:80 --name prod-live ${DOCKER_USER}/${IMAGE_NAME}:latest
 
                             sleep 5
                             status=\$(docker ps | grep prod-live | wc -l)
@@ -170,6 +199,7 @@ pipeline {
                         """
                     }
                 }
+                failure { echo "⚠️ Production deployment failed. Stable image retained." }
             }
         }
 
@@ -194,7 +224,10 @@ pipeline {
     post {
         success { echo "✅ Pipeline completed for ${env.BRANCH_NAME}" }
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
+        
     }
 }
+
+
 
 
