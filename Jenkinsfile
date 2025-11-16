@@ -6,11 +6,6 @@ pipeline {
     DOCKER_USER = "esstee911"
   }
 
-  options {
-    skipDefaultCheckout(true)
-    buildDiscarder(logRotator(numToKeepStr: '30'))
-  }
-
   stages {
 
     /* -------- Checkout (always) -------- */
@@ -198,3 +193,4 @@ pipeline {
     failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
   }
 }
+
