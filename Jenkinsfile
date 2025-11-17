@@ -85,6 +85,8 @@ pipeline {
                 sh "sleep 5"
                 sh "docker exec staging curl -f http://localhost/ || (echo 'Staging health check failed' && exit 1)"
 
+                echo "The image has been deployed for performance and regression testing to the following link https://practicedevops-staging.onrender.com"
+
                 // Optional: lock dev branch
                 echo "🔒 Locking dev branch (optional)"
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'USER', passwordVariable: 'TOKEN')]) {
@@ -193,3 +195,4 @@ pipeline {
         failure { echo "❌ Pipeline failed for ${env.BRANCH_NAME}" }
     }
 }
+
