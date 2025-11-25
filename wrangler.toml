@@ -1,0 +1,2 @@
+name = "my-static-site"
+pages_build_output_dir = "./"
