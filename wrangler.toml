@@ -1,2 +1,7 @@
-name = "static-site"
-pages_build_output_dir = "./"
+name = "practicedevops-worker"
+compatibility_date = "2025-11-25" # set to today's date (or the date of deploy)
+type = "javascript"
+
+[assets]
+directory = "./"        # upload files from repo root
+binding = "ASSETS"      # env binding name you will use in code
